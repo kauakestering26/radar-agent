@@ -1,62 +1,46 @@
 # Radar Agent — compose pro DONO rodar no notebook dele durante a demo.
 #
-# Não precisa clonar repo. Baixa só este arquivo, ajusta a linha CONTROL_PLANE_URL
-# pra apontar pro control-plane do dev, e roda:
+# Não precisa clonar repo. Baixa só este arquivo, aponta o CONTROL_PLANE_URL
+# pra URL do control-plane do dev, e roda:
 #
 #   docker compose -f docker-compose.demo.yml up -d
 #
 # Ao final:
 #   docker compose -f docker-compose.demo.yml down -v
 #
-# Nenhuma credencial real do dono é usada aqui — o agent escaneia um Postgres
-# de teste que sobe no próprio notebook dele. Serve pra mostrar o fluxo
-# ponta-a-ponta sem mexer em nada dos dados reais dele.
+# Nenhuma credencial real do dono é usada por default — o agent escaneia um
+# Postgres de teste (já pré-seedado) que sobe no próprio notebook dele. Pra
+# apontar pro banco REAL dele, exporte POSTGRES_DSN antes do `up`.
 
 services:
 
-  # ── Postgres de teste (simula o banco do cliente) ─────────────────────────
+  # ── Postgres de teste (imagem pré-seedada publicada no ghcr.io) ──────────
   postgres-demo:
-    image: pgvector/pgvector:pg16
+    image: ghcr.io/kauakestering26/radar-agent/postgres-demo:0.5.0
     container_name: radar-demo-postgres
     environment:
       - POSTGRES_USER=radar
       - POSTGRES_PASSWORD=radar
       - POSTGRES_DB=radar_test
-    volumes:
-      # Download do seed em runtime, sem clonar repo
-      - demo-seed:/docker-entrypoint-initdb.d
     networks: [radar-demo]
     restart: unless-stopped
-    # Baixa o seed do GitHub na primeira inicialização
-    command: >
-      bash -c "
-        if [ ! -f /docker-entrypoint-initdb.d/00-seed.sql ]; then
-          apt-get update -qq && apt-get install -y -qq curl > /dev/null;
-          curl -sL https://raw.githubusercontent.com/kauakestering26/radar-agent/main/targets/postgres-test/init/00-seed.sql \
-            -o /docker-entrypoint-initdb.d/00-seed.sql;
-        fi;
-        exec docker-entrypoint.sh postgres
-      "
 
   # ── Radar Agent (quem conecta no control-plane do dev) ───────────────────
   agent:
     image: ghcr.io/kauakestering26/radar-agent/agent:0.2.0
     container_name: radar-demo-agent
     environment:
-      # ▼▼▼ MUDE AQUI ▼▼▼
-      # Troque pelo IP/URL do control-plane do DEV. Exemplos:
+      # Troque pela URL do control-plane do DEV:
       #   Rede local  : ws://192.168.1.42:8000
-      #   Cloudflare  : wss://radar-dev.trycloudflare.com
+      #   Cloudflare  : wss://xxx.trycloudflare.com
       - CONTROL_PLANE_URL=${CONTROL_PLANE_URL:-ws://CHANGE_ME:8000}
 
-      # Identificador único deste agent (pra aparecer no dashboard do dev)
+      # Identificador único deste agent (aparece no dashboard do dev)
       - AGENT_ID=${AGENT_ID:-agent-notebook-dono}
 
-      # Credencial do Postgres a escanear. Default aponta pro postgres-demo
-      # deste mesmo compose (banco de teste com seed). Pra apontar pro banco
-      # REAL do cliente, exporta POSTGRES_DSN antes do `docker compose up`:
+      # Default: escaneia o postgres-demo local acima. Pra apontar pro banco
+      # REAL do cliente, exporte POSTGRES_DSN antes do docker compose up:
       #   export POSTGRES_DSN="postgresql://radar_ro:senha@host.docker.internal:5432/app"
-      # Nunca sai deste notebook — o agent só manda metadados pro control-plane.
       - POSTGRES_DSN=${POSTGRES_DSN:-postgresql://radar:radar@postgres-demo:5432/radar_test}
 
       - HEARTBEAT_INTERVAL=10
@@ -68,6 +52,3 @@ services:
 networks:
   radar-demo:
     driver: bridge
-
-volumes:
-  demo-seed:
