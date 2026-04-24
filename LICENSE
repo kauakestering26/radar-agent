@@ -1,0 +1,36 @@
+Radar Agent — Proprietary License
+Copyright (c) 2026 Jump Label / Kauã Kestering. All rights reserved.
+
+This software and associated documentation files (the "Software") are the
+proprietary property of the copyright holder.
+
+The source code is published publicly for transparency, due diligence,
+security auditability, and educational reference only.
+
+Permitted (without separate written agreement):
+  - Reading and studying the source code
+  - Auditing the code for security purposes
+  - Running the Software locally for evaluation
+  - Citing or referencing snippets with attribution
+
+Not permitted without prior written commercial agreement with the copyright
+holder:
+  - Using the Software in production or to deliver services to third parties
+  - Selling, sublicensing, or redistributing the Software or derivative works
+  - Removing or altering copyright notices
+  - Training machine learning models on the Software for the purpose of
+    reproducing substantially similar code
+
+Contributions submitted via pull request are understood to be licensed to
+the copyright holder under the same terms as this License, unless otherwise
+agreed in writing.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+For commercial licensing inquiries, contact: kaua.kestering@jumplabel.com.br

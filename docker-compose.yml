@@ -1,0 +1,68 @@
+version: "3.9"
+
+# docker-compose carrega automaticamente um `.env` na raiz do projeto.
+# As variáveis referenciadas com ${VAR:-default} usam o .env quando presente
+# e caem no default caso contrário — permite testar localmente sem criar .env.
+
+services:
+
+  control-plane:
+    build: ./control-plane
+    container_name: radar-control-plane
+    ports:
+      - "${CONTROL_PLANE_PORT:-8000}:8000"
+    environment:
+      # Ativa o tap WS em memória pro script de verificação de segurança.
+      # NUNCA ligar em produção — o endpoint /_debug/ws-log expõe os frames
+      # em claro. Default 'false' mantém desligado.
+      - DEBUG_WS_LOG=${DEBUG_WS_LOG:-false}
+    networks:
+      - radar-poc
+    restart: unless-stopped
+
+  agent:
+    build: ./agent
+    container_name: radar-agent-1
+    environment:
+      - CONTROL_PLANE_URL=${CONTROL_PLANE_URL:-ws://control-plane:8000}
+      - AGENT_ID=${AGENT_ID:-agent-cliente-1}
+      - HEARTBEAT_INTERVAL=${HEARTBEAT_INTERVAL:-10}
+      # Credenciais dos conectores — vivem SÓ aqui, nunca saem via WebSocket.
+      - POSTGRES_DSN=${POSTGRES_DSN:-postgresql://radar:radar@postgres-target:5432/radar_test}
+    depends_on:
+      - control-plane
+    networks:
+      - radar-poc
+    restart: unless-stopped
+
+  # ── Target de teste: PostgreSQL com pgvector + seed ───────────────────────
+  # Simula um banco de cliente pra validar o conector postgresql. Em produção
+  # o agent conecta num banco externo, este serviço só existe pra demo/POC.
+  postgres-target:
+    image: pgvector/pgvector:pg16
+    container_name: radar-postgres-target
+    environment:
+      - POSTGRES_USER=radar
+      - POSTGRES_PASSWORD=radar
+      - POSTGRES_DB=radar_test
+    volumes:
+      - ./targets/postgres-test/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - radar-poc
+    restart: unless-stopped
+
+  # Descomente para simular múltiplos clientes
+  # agent-2:
+  #   build: ./agent
+  #   container_name: radar-agent-2
+  #   environment:
+  #     - CONTROL_PLANE_URL=ws://control-plane:8000
+  #     - AGENT_ID=agent-cliente-2
+  #   depends_on:
+  #     - control-plane
+  #   networks:
+  #     - radar-poc
+
+networks:
+  radar-poc:
+    driver: bridge
