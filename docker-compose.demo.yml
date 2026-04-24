@@ -1,0 +1,69 @@
+# Radar Agent — compose pro DONO rodar no notebook dele durante a demo.
+#
+# Não precisa clonar repo. Baixa só este arquivo, ajusta a linha CONTROL_PLANE_URL
+# pra apontar pro control-plane do dev, e roda:
+#
+#   docker compose -f docker-compose.demo.yml up -d
+#
+# Ao final:
+#   docker compose -f docker-compose.demo.yml down -v
+#
+# Nenhuma credencial real do dono é usada aqui — o agent escaneia um Postgres
+# de teste que sobe no próprio notebook dele. Serve pra mostrar o fluxo
+# ponta-a-ponta sem mexer em nada dos dados reais dele.
+
+services:
+
+  # ── Postgres de teste (simula o banco do cliente) ─────────────────────────
+  postgres-demo:
+    image: pgvector/pgvector:pg16
+    container_name: radar-demo-postgres
+    environment:
+      - POSTGRES_USER=radar
+      - POSTGRES_PASSWORD=radar
+      - POSTGRES_DB=radar_test
+    volumes:
+      # Download do seed em runtime, sem clonar repo
+      - demo-seed:/docker-entrypoint-initdb.d
+    networks: [radar-demo]
+    restart: unless-stopped
+    # Baixa o seed do GitHub na primeira inicialização
+    command: >
+      bash -c "
+        if [ ! -f /docker-entrypoint-initdb.d/00-seed.sql ]; then
+          apt-get update -qq && apt-get install -y -qq curl > /dev/null;
+          curl -sL https://raw.githubusercontent.com/kauakestering26/radar-agent/main/targets/postgres-test/init/00-seed.sql \
+            -o /docker-entrypoint-initdb.d/00-seed.sql;
+        fi;
+        exec docker-entrypoint.sh postgres
+      "
+
+  # ── Radar Agent (quem conecta no control-plane do dev) ───────────────────
+  agent:
+    image: ghcr.io/kauakestering26/radar-agent/agent:0.2.0
+    container_name: radar-demo-agent
+    environment:
+      # ▼▼▼ MUDE AQUI ▼▼▼
+      # Troque pelo IP/URL do control-plane do DEV. Exemplos:
+      #   Rede local  : ws://192.168.1.42:8000
+      #   Cloudflare  : wss://radar-dev.trycloudflare.com
+      - CONTROL_PLANE_URL=${CONTROL_PLANE_URL:-ws://CHANGE_ME:8000}
+
+      # Identificador único deste agent (pra aparecer no dashboard do dev)
+      - AGENT_ID=${AGENT_ID:-agent-notebook-dono}
+
+      # Credencial do Postgres LOCAL deste notebook — nunca sai daqui
+      - POSTGRES_DSN=postgresql://radar:radar@postgres-demo:5432/radar_test
+
+      - HEARTBEAT_INTERVAL=10
+    depends_on:
+      - postgres-demo
+    networks: [radar-demo]
+    restart: unless-stopped
+
+networks:
+  radar-demo:
+    driver: bridge
+
+volumes:
+  demo-seed:
