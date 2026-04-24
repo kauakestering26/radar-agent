@@ -56,6 +56,87 @@
 
 ---
 
+---
+
+## Parte 2 — Apontar pro banco REAL dele (se ele pedir)
+
+Se o dono disser *"ok, funciona, agora me mostra com um banco meu"*, você
+só troca a env var `POSTGRES_DSN` antes do `docker compose up`. Os comandos
+ficam:
+
+### Cenário A — banco na própria máquina dele (localhost)
+
+Ex: Postgres Docker local, ou Postgres nativo rodando no Mac dele.
+
+**Mac/Linux:**
+```bash
+export POSTGRES_DSN="postgresql://usuario:senha@host.docker.internal:5432/nome_do_db"
+docker compose -f docker-compose.demo.yml up -d
+```
+
+**Windows:**
+```powershell
+$env:POSTGRES_DSN="postgresql://usuario:senha@host.docker.internal:5432/nome_do_db"
+docker compose -f docker-compose.demo.yml up -d
+```
+
+> `host.docker.internal` é como o container enxerga o `localhost` da máquina
+> host. Se o banco dele está em `localhost:5432`, use esse endereço.
+
+### Cenário B — banco em servidor interno / VPN
+
+Se o banco é acessível pela rede dele:
+
+```bash
+export POSTGRES_DSN="postgresql://usuario:senha@db.interna.empresa:5432/app"
+docker compose -f docker-compose.demo.yml up -d
+```
+
+O Docker Desktop usa a mesma stack de rede do host, então se o Mac dele
+alcança o banco via hostname/IP, o container também alcança.
+
+### Cenário C — banco no cloud (RDS, Neon, Supabase, Railway)
+
+```bash
+export POSTGRES_DSN="postgresql://usuario:senha@xxx.rds.amazonaws.com:5432/prod?sslmode=require"
+docker compose -f docker-compose.demo.yml up -d
+```
+
+> Se o banco exigir TLS, manda `?sslmode=require` no final da DSN. asyncpg
+> respeita isso por padrão.
+
+### Permissões mínimas SQL (recomendar pro dono)
+
+O conector **só lê metadados** — nunca toca dados de aplicação. Permissão
+absoluta mínima:
+
+```sql
+CREATE ROLE radar_readonly WITH LOGIN PASSWORD '<escolha uma>';
+GRANT USAGE ON SCHEMA pg_catalog, information_schema TO radar_readonly;
+-- e pronto. Não dê SELECT em nenhuma tabela de aplicação.
+```
+
+Argumento pro CISO dele: mesmo que o agent seja comprometido ou alguém
+pegue o binário da imagem, só conseguiria ler catálogo. Zero superfície
+de exfiltração de dados.
+
+### Formato alternativo — docker run puro (mais simples ainda)
+
+Se ele quiser ir direto ao ponto sem `docker-compose.demo.yml`:
+
+```bash
+docker run -d --rm --name radar-agent \
+  -e CONTROL_PLANE_URL="wss://seu-tunnel.trycloudflare.com" \
+  -e AGENT_ID="cliente-xyz" \
+  -e POSTGRES_DSN="postgresql://radar_ro:senha@host.docker.internal:5432/app" \
+  ghcr.io/kauakestering26/radar-agent/agent:0.2.0
+```
+
+Um único comando, zero arquivo. É exatamente esse o "modelo de deploy"
+final do produto: o cliente roda um `docker run` e esquece.
+
+---
+
 ## Checklist interno (pro dev, véspera da demo)
 
 - [ ] Enviei o `docker-compose.demo.yml` pro convidado

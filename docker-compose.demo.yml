@@ -52,8 +52,12 @@ services:
       # Identificador único deste agent (pra aparecer no dashboard do dev)
       - AGENT_ID=${AGENT_ID:-agent-notebook-dono}
 
-      # Credencial do Postgres LOCAL deste notebook — nunca sai daqui
-      - POSTGRES_DSN=postgresql://radar:radar@postgres-demo:5432/radar_test
+      # Credencial do Postgres a escanear. Default aponta pro postgres-demo
+      # deste mesmo compose (banco de teste com seed). Pra apontar pro banco
+      # REAL do cliente, exporta POSTGRES_DSN antes do `docker compose up`:
+      #   export POSTGRES_DSN="postgresql://radar_ro:senha@host.docker.internal:5432/app"
+      # Nunca sai deste notebook — o agent só manda metadados pro control-plane.
+      - POSTGRES_DSN=${POSTGRES_DSN:-postgresql://radar:radar@postgres-demo:5432/radar_test}
 
       - HEARTBEAT_INTERVAL=10
     depends_on:
