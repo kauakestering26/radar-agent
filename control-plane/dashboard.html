@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Radar Agent — Control Plane</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes pulse-live { 0%,100%{opacity:1} 50%{opacity:.35} }
+    .live-dot { animation: pulse-live 1.6s ease-in-out infinite; }
+    @keyframes fade-in { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+    .fade-in { animation: fade-in .25s ease-out; }
+    body { font-feature-settings: "ss01","cv11"; }
+    /* Scrollbar discreta */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: #0b0f14; }
+    ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 8px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-10">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-fuchsia-500 grid place-items-center text-white font-black">R</div>
+        <div>
+          <h1 class="font-bold text-lg leading-tight">Radar Agent</h1>
+          <p class="text-xs text-slate-400">Control Plane — POC</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <span id="live-badge" class="hidden md:inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-sm">
+          <span class="w-2 h-2 bg-emerald-400 rounded-full live-dot"></span>
+          LIVE
+        </span>
+        <span id="conn-err" class="hidden px-3 py-1.5 rounded-full bg-red-950/60 border border-red-800 text-red-300 text-sm">
+          Control-plane offline
+        </span>
+        <span class="text-xs text-slate-500" id="last-updated">—</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-8 space-y-8">
+
+    <!-- KPIs -->
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+        <p class="text-xs uppercase tracking-wider text-slate-400">Agents conectados</p>
+        <p class="text-3xl font-bold mt-2" id="kpi-agents">0</p>
+      </div>
+      <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+        <p class="text-xs uppercase tracking-wider text-slate-400">Escaneando agora</p>
+        <p class="text-3xl font-bold mt-2 text-amber-400" id="kpi-scanning">0</p>
+      </div>
+      <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+        <p class="text-xs uppercase tracking-wider text-slate-400">Assets descobertos</p>
+        <p class="text-3xl font-bold mt-2 text-emerald-400" id="kpi-assets">0</p>
+      </div>
+      <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+        <p class="text-xs uppercase tracking-wider text-slate-400">Severidade alta</p>
+        <p class="text-3xl font-bold mt-2 text-red-400" id="kpi-high">0</p>
+      </div>
+    </section>
+
+    <!-- Agents -->
+    <section>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm uppercase tracking-wider text-slate-400">Agents</h2>
+        <p class="text-xs text-slate-500">Credenciais vivem aqui. Nunca saem.</p>
+      </div>
+      <div id="agents-list" class="space-y-2"></div>
+      <div id="agents-empty" class="text-center py-10 text-slate-500 border border-dashed border-slate-800 rounded-xl hidden">
+        Nenhum agent conectado. Rode <code class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">docker run ...</code> no ambiente do cliente.
+      </div>
+    </section>
+
+    <!-- Filtros + Assets -->
+    <section>
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-3">
+        <h2 class="text-sm uppercase tracking-wider text-slate-400">Assets de IA descobertos</h2>
+        <div class="flex items-center gap-2">
+          <button data-filter="all"       class="filter-btn px-3 py-1 rounded-full text-xs border border-slate-700 bg-slate-800">Todos</button>
+          <button data-filter="high"      class="filter-btn px-3 py-1 rounded-full text-xs border border-slate-800">Alta</button>
+          <button data-filter="medium"    class="filter-btn px-3 py-1 rounded-full text-xs border border-slate-800">Média</button>
+          <button data-filter="low"       class="filter-btn px-3 py-1 rounded-full text-xs border border-slate-800">Baixa</button>
+          <button id="clear-results" class="ml-2 px-3 py-1 rounded-full text-xs border border-red-900 text-red-300 hover:bg-red-950">Limpar</button>
+        </div>
+      </div>
+
+      <!-- Grupos por tipo -->
+      <div id="assets-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+      <div id="assets-empty" class="text-center py-14 text-slate-500 border border-dashed border-slate-800 rounded-xl hidden">
+        Ainda nada descoberto. Dispare um scan em algum agent acima.
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // ── Config ───────────────────────────────────────────────────────────
+    const POLL_MS = 2000;
+    let currentFilter = "all";
+    let knownAssetIds = new Set();   // pra animar só os novos
+    let lastAssetCount = 0;
+
+    // Cor/ícone por severity
+    const SEV_META = {
+      high:   { color: "text-red-400",     bg: "bg-red-950/40 border-red-900",       badge: "bg-red-500/15 text-red-300" },
+      medium: { color: "text-amber-400",   bg: "bg-amber-950/30 border-amber-900",   badge: "bg-amber-500/15 text-amber-300" },
+      low:    { color: "text-emerald-400", bg: "bg-emerald-950/30 border-emerald-900", badge: "bg-emerald-500/15 text-emerald-300" },
+    };
+
+    // Label amigável por tipo de asset
+    const TYPE_LABEL = {
+      vector_extension:   "Extensão vetorial",
+      in_database_ml:     "ML in-database",
+      ai_extension:       "Extensão de IA",
+      embedding_store:    "Embedding store",
+      vector_index:       "Índice vetorial",
+      ml_schema:          "Schema de ML",
+      model_registry:     "Model registry",
+      ai_table_candidate: "Tabela suspeita",
+      ai_column_candidate:"Coluna suspeita",
+    };
+
+    const TYPE_EMOJI = {
+      vector_extension:   "🧬",
+      in_database_ml:     "🧠",
+      ai_extension:       "🧩",
+      embedding_store:    "📦",
+      vector_index:       "🗂️",
+      ml_schema:          "🗄️",
+      model_registry:     "📚",
+      ai_table_candidate: "🔎",
+      ai_column_candidate:"🔬",
+    };
+
+    // ── Fetchers ─────────────────────────────────────────────────────────
+    async function api(path, opts = {}) {
+      try {
+        const r = await fetch(path, opts);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return await r.json();
+      } catch (e) {
+        setConnOk(false);
+        throw e;
+      }
+    }
+
+    function setConnOk(ok) {
+      document.getElementById("live-badge").classList.toggle("hidden", !ok);
+      document.getElementById("conn-err").classList.toggle("hidden", ok);
+    }
+
+    // ── Render helpers ──────────────────────────────────────────────────
+    function relTime(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso + (iso.endsWith("Z") ? "" : "Z"));
+      const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+      if (s < 60)    return `há ${s}s`;
+      if (s < 3600)  return `há ${Math.floor(s/60)}min`;
+      if (s < 86400) return `há ${Math.floor(s/3600)}h`;
+      return d.toLocaleString();
+    }
+
+    function agentStatusBadge(status) {
+      const map = {
+        idle:     ["bg-emerald-500/15 text-emerald-300",  "idle"],
+        scanning: ["bg-amber-500/15 text-amber-300",      "escaneando…"],
+      };
+      const [cls, label] = map[status] || ["bg-slate-700 text-slate-300", status];
+      return `<span class="text-xs px-2 py-0.5 rounded-full ${cls}">${label}</span>`;
+    }
+
+    function renderAgents(agents) {
+      const el = document.getElementById("agents-list");
+      const empty = document.getElementById("agents-empty");
+      if (!agents.length) {
+        el.innerHTML = "";
+        empty.classList.remove("hidden");
+        return;
+      }
+      empty.classList.add("hidden");
+      el.innerHTML = agents.map(a => `
+        <div class="flex items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-900/40 fade-in">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 live-dot"></span>
+            <div class="min-w-0">
+              <p class="font-semibold truncate">${escapeHtml(a.agent_id)}</p>
+              <p class="text-xs text-slate-500">Conectado ${relTime(a.connected_at)} · último ping ${relTime(a.last_seen)}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            ${agentStatusBadge(a.status)}
+            <button onclick="dispatchScan('${encodeURIComponent(a.agent_id)}','postgresql')"
+                    class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-500 transition font-medium">
+              Scan Postgres
+            </button>
+            <button onclick="dispatchScan('${encodeURIComponent(a.agent_id)}','mock')"
+                    class="px-3 py-1.5 text-sm rounded-lg border border-slate-700 hover:bg-slate-800 transition">
+              Scan mock
+            </button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function assetId(a) {
+      // identidade estável pra detectar novos
+      return `${a.scan_id}|${a.type}|${a.location || a.name}`;
+    }
+
+    function renderAssets(assets) {
+      // Filtro
+      const visible = currentFilter === "all"
+        ? assets
+        : assets.filter(a => a.severity === currentFilter);
+
+      const grid = document.getElementById("assets-grid");
+      const empty = document.getElementById("assets-empty");
+
+      if (!visible.length) {
+        grid.innerHTML = "";
+        empty.classList.remove("hidden");
+        return;
+      }
+      empty.classList.add("hidden");
+
+      // Agrupa por type
+      const groups = {};
+      for (const a of visible) {
+        if (!groups[a.type]) groups[a.type] = [];
+        groups[a.type].push(a);
+      }
+
+      grid.innerHTML = Object.entries(groups).map(([type, list]) => {
+        const label = TYPE_LABEL[type] || type;
+        const emoji = TYPE_EMOJI[type] || "•";
+        return `
+          <div class="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+            <div class="px-5 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+              <div class="flex items-center gap-2">
+                <span class="text-lg">${emoji}</span>
+                <h3 class="font-semibold">${label}</h3>
+              </div>
+              <span class="text-xs text-slate-500">${list.length}</span>
+            </div>
+            <div class="divide-y divide-slate-800/80 max-h-[420px] overflow-y-auto">
+              ${list.map(renderAssetItem).join("")}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderAssetItem(a) {
+      const sev = SEV_META[a.severity] || SEV_META.low;
+      const isNew = !knownAssetIds.has(assetId(a));
+      knownAssetIds.add(assetId(a));
+      const conf = a.confidence != null ? `${Math.round(a.confidence * 100)}%` : "";
+      const hint = a.evidence?.provider_hint;
+      return `
+        <div class="p-4 ${isNew ? "fade-in" : ""}">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="font-medium truncate">${escapeHtml(a.name || "(sem nome)")}</p>
+              <p class="text-sm text-slate-400 mt-0.5 line-clamp-2">${escapeHtml(a.detail || "")}</p>
+              ${hint ? `<p class="text-xs text-indigo-300 mt-1">→ ${escapeHtml(hint)}</p>` : ""}
+              <div class="flex items-center gap-2 mt-2 flex-wrap">
+                <span class="text-xs px-2 py-0.5 rounded-full ${sev.badge}">${a.severity}</span>
+                ${conf ? `<span class="text-xs text-slate-500">confiança ${conf}</span>` : ""}
+                <span class="text-xs text-slate-500">· ${escapeHtml(a.agent_id || "")}</span>
+                <span class="text-xs text-slate-500">· ${relTime(a.received_at || a.discovered_at)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+    }
+
+    // ── Actions ──────────────────────────────────────────────────────────
+    async function dispatchScan(agentId, connector) {
+      try {
+        await fetch(`/scan/${agentId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ connector }),
+        });
+        flashKpi("kpi-scanning");
+      } catch (e) {
+        alert("Falha ao disparar scan: " + e.message);
+      }
+    }
+    window.dispatchScan = dispatchScan;
+
+    async function clearResults() {
+      if (!confirm("Limpar todos os resultados?")) return;
+      await fetch("/results", { method: "DELETE" });
+      knownAssetIds.clear();
+      refresh();
+    }
+
+    document.getElementById("clear-results").addEventListener("click", clearResults);
+
+    // Filtros
+    document.querySelectorAll(".filter-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("bg-slate-800"));
+        btn.classList.add("bg-slate-800");
+        currentFilter = btn.dataset.filter;
+        refresh();
+      });
+    });
+
+    function flashKpi(id) {
+      const el = document.getElementById(id);
+      el.classList.add("text-indigo-400");
+      setTimeout(() => el.classList.remove("text-indigo-400"), 500);
+    }
+
+    // ── Refresh loop ─────────────────────────────────────────────────────
+    let cachedAssets = [];
+
+    async function refresh() {
+      try {
+        const [agents, res] = await Promise.all([
+          api("/agents"),
+          api("/results"),
+        ]);
+
+        cachedAssets = res.assets || [];
+
+        // KPIs
+        document.getElementById("kpi-agents").textContent   = agents.length;
+        document.getElementById("kpi-scanning").textContent = agents.filter(a => a.status === "scanning").length;
+        document.getElementById("kpi-assets").textContent   = cachedAssets.length;
+        document.getElementById("kpi-high").textContent     = cachedAssets.filter(a => a.severity === "high").length;
+
+        // Anima contagem quando chegam novos assets
+        if (cachedAssets.length > lastAssetCount) {
+          flashKpi("kpi-assets");
+        }
+        lastAssetCount = cachedAssets.length;
+
+        renderAgents(agents);
+        renderAssets(cachedAssets);
+
+        document.getElementById("last-updated").textContent =
+          "atualizado " + new Date().toLocaleTimeString();
+
+        setConnOk(true);
+      } catch (_) {
+        // setConnOk(false) já rodou no api()
+      }
+    }
+
+    refresh();
+    setInterval(refresh, POLL_MS);
+  </script>
+</body>
+</html>

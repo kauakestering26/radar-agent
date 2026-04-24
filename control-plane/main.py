@@ -14,8 +14,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from pathlib import Path
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [CONTROL-PLANE] %(message)s")
 log = logging.getLogger(__name__)
@@ -214,6 +217,15 @@ def get_results(agent_id: str = None, connector: str = None):
 def clear_results():
     results.clear()
     return {"message": "Resultados limpos"}
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard():
+    """Dashboard HTML servido na raiz — visualiza agents e assets em tempo real."""
+    html_path = Path(__file__).parent / "dashboard.html"
+    if not html_path.exists():
+        return HTMLResponse("<h1>dashboard.html não encontrado</h1>", status_code=500)
+    return FileResponse(html_path, media_type="text/html")
 
 
 @app.get("/health")
